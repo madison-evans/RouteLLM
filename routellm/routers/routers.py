@@ -1,7 +1,7 @@
 import abc
 import functools
 import random
-
+from transformers import AutoTokenizer, AutoModel
 import numpy as np
 import torch
 from datasets import concatenate_datasets, load_dataset
@@ -211,17 +211,43 @@ class MatrixFactorizationRouter(Router):
     def __init__(
         self,
         checkpoint_path,
-        # This is the model pair for scoring at inference time,
-        # and can be different from the model pair used for routing.
+        # Model pair for scoring at inference time
         strong_model="gpt-4-1106-preview",
         weak_model="mixtral-8x7b-instruct-v0.1",
         hidden_size=128,
-        num_models=64,
-        text_dim=1536,
+        num_models=None,  # Updated to allow specifying num_models
+        text_dim=None,    # Updated to accept text_dim as a parameter
         num_classes=1,
         use_proj=True,
+        use_openai_embeddings=True,         # New parameter
+        embedding_model_name=None,          # New parameter
     ):
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+        # Set num_models to the length of MODEL_IDS if not specified
+        if num_models is None:
+            num_models = len(MODEL_IDS)
+
+        # Set text_dim based on the embedding model if not specified
+        if text_dim is None:
+            if use_openai_embeddings:
+                # Default OpenAI embedding model is 'text-embedding-ada-002'
+                if embedding_model_name is None:
+                    embedding_model_name = "text-embedding-ada-002"
+                # OpenAI embeddings have a fixed dimension
+                text_dim = 1536  # Adjust if using a different OpenAI model
+            else:
+                # For Hugging Face embeddings, determine text_dim from the model
+                if embedding_model_name is None:
+                    embedding_model_name = 'sentence-transformers/all-MiniLM-L6-v2'
+                # Load the model to get the embedding dimension
+                tokenizer = AutoTokenizer.from_pretrained(embedding_model_name)
+                hf_model = AutoModel.from_pretrained(embedding_model_name)
+                # Get the embedding dimension from the model's config
+                text_dim = hf_model.config.hidden_size
+                # Clean up the model from memory
+                del tokenizer
+                del hf_model
 
         self.model = MFModel.from_pretrained(
             checkpoint_path,
@@ -230,6 +256,8 @@ class MatrixFactorizationRouter(Router):
             text_dim=text_dim,
             num_classes=num_classes,
             use_proj=use_proj,
+            use_openai_embeddings=use_openai_embeddings,      # Pass the new parameter
+            embedding_model_name=embedding_model_name,        # Pass the new parameter
         )
         self.model = self.model.eval().to(device)
         self.strong_model_id = MODEL_IDS[strong_model]
@@ -240,7 +268,6 @@ class MatrixFactorizationRouter(Router):
             self.strong_model_id, self.weak_model_id, prompt
         )
         return winrate
-
 
 # Parallelism makes the randomness non deterministic
 @no_parallel

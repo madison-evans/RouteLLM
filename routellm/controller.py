@@ -24,7 +24,7 @@ GPT_4_AUGMENTED_CONFIG = {
     },
     "causal_llm": {"checkpoint_path": "routellm/causal_llm_gpt4_augmented"},
     "bert": {"checkpoint_path": "routellm/bert_gpt4_augmented"},
-    "mf": {"checkpoint_path": "routellm/mf_gpt4_augmented"},
+    "mf": {"checkpoint_path": "madison-evans/routellm_all-MiniLM-L6-v2"},
 }
 
 
