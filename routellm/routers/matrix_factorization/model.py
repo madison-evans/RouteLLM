@@ -80,20 +80,19 @@ class MFModel(torch.nn.Module, PyTorchModelHubMixin):
         num_classes,
         use_proj,
         use_openai_embeddings=True,  # Parameter to choose embedding source
-        embedding_model_name=None  # Name of the embedding model
+        embedding_model_name=None,  # Name of the embedding model
+        hf_token=None,  # Add hf_token as a parameter
     ):
         super().__init__()
         self._name = "TextMF"
         self.use_proj = use_proj
         self.P = torch.nn.Embedding(num_models, dim)
         self.use_openai_embeddings = use_openai_embeddings
+        self.hf_token = hf_token 
 
-        # Set the embedding model name
         if self.use_openai_embeddings:
-            # Default OpenAI embedding model
-            self.embedding_model_name = embedding_model_name or "text-embedding-ada-002"
+            self.embedding_model_name = embedding_model_name or "text-embedding-3-small"
         else:
-            # Default Hugging Face embedding model
             self.embedding_model_name = embedding_model_name or "sentence-transformers/all-MiniLM-L6-v2"
 
         if self.use_proj:
@@ -111,8 +110,14 @@ class MFModel(torch.nn.Module, PyTorchModelHubMixin):
 
         if not self.use_openai_embeddings:
             # Initialize Hugging Face tokenizer and model
-            self.tokenizer = AutoTokenizer.from_pretrained(self.embedding_model_name)
-            self.embedding_model = AutoModel.from_pretrained(self.embedding_model_name)
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self.embedding_model_name,
+                use_auth_token=self.hf_token
+            )
+            self.embedding_model = AutoModel.from_pretrained(
+                self.embedding_model_name,
+                use_auth_token=self.hf_token
+            )
             self.embedding_model.eval() 
             self.embedding_model.to(self.get_device())
         else:

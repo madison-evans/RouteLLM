@@ -221,6 +221,7 @@ class MatrixFactorizationRouter(Router):
         use_proj=True,
         use_openai_embeddings=True,         # New parameter
         embedding_model_name=None,          # New parameter
+        hf_token=None,  # Add hf_token as a parameter
     ):
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
@@ -233,7 +234,7 @@ class MatrixFactorizationRouter(Router):
             if use_openai_embeddings:
                 # Default OpenAI embedding model is 'text-embedding-ada-002'
                 if embedding_model_name is None:
-                    embedding_model_name = "text-embedding-ada-002"
+                    embedding_model_name = "text-embedding-3-small"
                 # OpenAI embeddings have a fixed dimension
                 text_dim = 1536  # Adjust if using a different OpenAI model
             else:
@@ -249,6 +250,7 @@ class MatrixFactorizationRouter(Router):
                 del tokenizer
                 del hf_model
 
+        # Initialize the MFModel with the token passed in
         self.model = MFModel.from_pretrained(
             checkpoint_path,
             dim=hidden_size,
@@ -256,8 +258,9 @@ class MatrixFactorizationRouter(Router):
             text_dim=text_dim,
             num_classes=num_classes,
             use_proj=use_proj,
-            use_openai_embeddings=use_openai_embeddings,      # Pass the new parameter
-            embedding_model_name=embedding_model_name,        # Pass the new parameter
+            use_openai_embeddings=use_openai_embeddings,
+            embedding_model_name=embedding_model_name,
+            hf_token=hf_token  # Pass the token here
         )
         self.model = self.model.eval().to(device)
         self.strong_model_id = MODEL_IDS[strong_model]
