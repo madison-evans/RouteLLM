@@ -50,6 +50,7 @@ class Controller:
         progress_bar: bool = False,
         hf_token: Optional[str] = None,  # Add hf_token as a parameter
     ):
+        self.hf_token = hf_token  # Store the hf_token
         self.model_pair = ModelPair(strong=strong_model, weak=weak_model)
         self.routers = {}
         self.api_base = api_base
@@ -68,10 +69,8 @@ class Controller:
         for router in routers:
             if router_pbar is not None:
                 router_pbar.set_description(f"Loading {router}")
-            self.routers[router] = ROUTER_CLS[router](
-                **config.get(router, {}), 
-                hf_token=self.hf_token  # Pass the token to the router
-                )
+            self.routers[router] = ROUTER_CLS[router](hf_token=self.hf_token, **config.get(router, {}))
+
 
         # Some Python magic to match the OpenAI Python SDK
         self.chat = SimpleNamespace(
