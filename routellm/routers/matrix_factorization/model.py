@@ -1,6 +1,6 @@
 import torch
 from huggingface_hub import PyTorchModelHubMixin
-
+from transformers import AutoTokenizer, AutoModel
 from routellm.routers.similarity_weighted.utils import OPENAI_CLIENT
 
 MODEL_IDS = {
@@ -79,13 +79,22 @@ class MFModel(torch.nn.Module, PyTorchModelHubMixin):
         text_dim,
         num_classes,
         use_proj,
+        use_openai_embeddings=True,  # Parameter to choose embedding source
+        embedding_model_name=None  # Name of the embedding model
     ):
         super().__init__()
         self._name = "TextMF"
         self.use_proj = use_proj
         self.P = torch.nn.Embedding(num_models, dim)
+        self.use_openai_embeddings = use_openai_embeddings
 
-        self.embedding_model = "text-embedding-3-small"
+        # Set the embedding model name
+        if self.use_openai_embeddings:
+            # Default OpenAI embedding model
+            self.embedding_model_name = embedding_model_name or "text-embedding-ada-002"
+        else:
+            # Default Hugging Face embedding model
+            self.embedding_model_name = embedding_model_name or "sentence-transformers/all-MiniLM-L6-v2"
 
         if self.use_proj:
             self.text_proj = torch.nn.Sequential(
@@ -100,8 +109,42 @@ class MFModel(torch.nn.Module, PyTorchModelHubMixin):
             torch.nn.Linear(dim, num_classes, bias=False)
         )
 
+        if not self.use_openai_embeddings:
+            # Initialize Hugging Face tokenizer and model
+            self.tokenizer = AutoTokenizer.from_pretrained(self.embedding_model_name)
+            self.embedding_model = AutoModel.from_pretrained(self.embedding_model_name)
+            self.embedding_model.eval() 
+            self.embedding_model.to(self.get_device())
+        else:
+            self.embedding_model = None  # Not used for OpenAI embeddings
+
     def get_device(self):
         return self.P.weight.device
+
+    def get_prompt_embedding(self, prompt):
+        if self.use_openai_embeddings:
+            # Use OpenAI embeddings
+            response = OPENAI_CLIENT.embeddings.create(
+                input=[prompt],
+                model=self.embedding_model_name
+            )
+            prompt_embed = response.data[0].embedding
+            prompt_embed = torch.tensor(prompt_embed, device=self.get_device())
+        else:
+            # Use Hugging Face embeddings
+            inputs = self.tokenizer(
+                prompt,
+                padding=True,
+                truncation=True,
+                return_tensors='pt'
+            )
+            inputs = {k: v.to(self.get_device()) for k, v in inputs.items()}
+            with torch.no_grad():
+                outputs = self.embedding_model(**inputs)
+                # Mean pooling over the token embeddings
+                last_hidden_state = outputs.last_hidden_state
+                prompt_embed = last_hidden_state.mean(dim=1).squeeze()
+        return prompt_embed
 
     def forward(self, model_id, prompt):
         model_id = torch.tensor(model_id, dtype=torch.long).to(self.get_device())
@@ -109,13 +152,10 @@ class MFModel(torch.nn.Module, PyTorchModelHubMixin):
         model_embed = self.P(model_id)
         model_embed = torch.nn.functional.normalize(model_embed, p=2, dim=1)
 
-        prompt_embed = (
-            OPENAI_CLIENT.embeddings.create(input=[prompt], model=self.embedding_model)
-            .data[0]
-            .embedding
-        )
-        prompt_embed = torch.tensor(prompt_embed, device=self.get_device())
-        prompt_embed = self.text_proj(prompt_embed)
+        prompt_embed = self.get_prompt_embedding(prompt)
+
+        if self.use_proj:
+            prompt_embed = self.text_proj(prompt_embed)
 
         return self.classifier(model_embed * prompt_embed).squeeze()
 
