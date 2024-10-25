@@ -104,6 +104,14 @@ class Controller:
                 f"Invalid model {model}. Model name must be of the format 'router-[router name]-[threshold]."
             )
         return router, threshold
+    
+    def get_routed_model(self, messages: list, router: str, threshold: float) -> str:
+        """
+        Get the routed model for a given message using the specified router and threshold.
+        """
+        self._validate_router_threshold(router, threshold)
+        routed_model = self._get_routed_model_for_completion(messages, router, threshold)
+        return routed_model
 
     def _get_routed_model_for_completion(
         self, messages: list, router: str, threshold: float
