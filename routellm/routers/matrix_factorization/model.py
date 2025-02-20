@@ -124,6 +124,7 @@ class MFModel(torch.nn.Module, PyTorchModelHubMixin):
                 self.embedding_model_name,
                 use_auth_token=self.hf_token
             )
+            
             self.embedding_model = AutoModel.from_pretrained(
                 self.embedding_model_name,
                 use_auth_token=self.hf_token
@@ -132,7 +133,7 @@ class MFModel(torch.nn.Module, PyTorchModelHubMixin):
             self.embedding_model.to(self.get_device())
         else:
             self.embedding_model = None  # Not used for OpenAI embeddings
-
+        logger.info(f"\n\ntokenizer: {self.tokenizer}\n\n")
     def get_device(self):
         return self.P.weight.device
 
@@ -154,11 +155,20 @@ class MFModel(torch.nn.Module, PyTorchModelHubMixin):
                 return_tensors='pt'
             )
             inputs = {k: v.to(self.get_device()) for k, v in inputs.items()}
+            
             with torch.no_grad():
                 outputs = self.embedding_model(**inputs)
-                # Mean pooling over the token embeddings
-                last_hidden_state = outputs.last_hidden_state
-                prompt_embed = last_hidden_state.mean(dim=1).squeeze()
+                
+                # Use CLS token instead of mean pooling
+                prompt_embed = outputs.last_hidden_state[:, 0, :].squeeze()
+                
+                # Normalize embeddings to match OpenAI
+                prompt_embed = torch.nn.functional.normalize(prompt_embed, p=2, dim=-1)
+
+                # Ensure shape consistency
+                if prompt_embed.dim() == 1:
+                    prompt_embed = prompt_embed.view(-1)
+
         return prompt_embed
 
     def forward(self, model_id, prompt):
@@ -177,6 +187,7 @@ class MFModel(torch.nn.Module, PyTorchModelHubMixin):
     @torch.no_grad()
     def pred_win_rate(self, model_a, model_b, prompt):
         logits = self.forward([model_a, model_b], prompt)
+        logger.info(f"\n\nlogits: {logits}\n\n")
         winrate = torch.sigmoid(logits[0] - logits[1]).item()
         return winrate
 
