@@ -2,6 +2,13 @@ import torch
 from huggingface_hub import PyTorchModelHubMixin
 from transformers import AutoTokenizer, AutoModel
 from routellm.routers.similarity_weighted.utils import OPENAI_CLIENT
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 MODEL_IDS = {
     "RWKV-4-Raven-14B": 0,
@@ -93,7 +100,10 @@ class MFModel(torch.nn.Module, PyTorchModelHubMixin):
         if self.use_openai_embeddings:
             self.embedding_model_name = embedding_model_name or "text-embedding-3-small"
         else:
-            self.embedding_model_name = embedding_model_name or "sentence-transformers/all-MiniLM-L6-v2"
+            self.embedding_model_name = embedding_model_name or "intfloat/e5-base-v2"
+
+        logger.info(f"self.embedding_model_name: {self.embedding_model_name}")
+        logger.info(f"dim: {dim}")
 
         if self.use_proj:
             self.text_proj = torch.nn.Sequential(
