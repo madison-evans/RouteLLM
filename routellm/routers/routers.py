@@ -21,6 +21,13 @@ from routellm.routers.similarity_weighted.utils import (
     compute_tiers,
     preprocess_battles,
 )
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 
 def no_parallel(cls):
@@ -270,6 +277,7 @@ class MatrixFactorizationRouter(Router):
         winrate = self.model.pred_win_rate(
             self.strong_model_id, self.weak_model_id, prompt
         )
+        logger.info(f"\n\nwinrate: {winrate}\n\n")
         return winrate
 
 # Parallelism makes the randomness non deterministic
