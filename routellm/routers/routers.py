@@ -257,6 +257,18 @@ class MatrixFactorizationRouter(Router):
                 del tokenizer
                 del hf_model
 
+        logger.info(f"Initializing MFModel with parameters:")
+        logger.info(f"  checkpoint_path: {checkpoint_path}")
+        logger.info(f"  dim: {hidden_size}")
+        logger.info(f"  num_models: {num_models}")
+        logger.info(f"  text_dim: {text_dim}")
+        logger.info(f"  num_classes: {num_classes}")
+        logger.info(f"  use_proj: {use_proj}")
+        logger.info(f"  use_openai_embeddings: {use_openai_embeddings}")
+        logger.info(f"  embedding_model_name: {embedding_model_name}")
+        logger.info(f"  hf_token: {hf_token}")
+
+
         # Initialize the MFModel with the token passed in
         self.model = MFModel.from_pretrained(
             checkpoint_path,
