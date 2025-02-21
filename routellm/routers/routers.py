@@ -247,7 +247,7 @@ class MatrixFactorizationRouter(Router):
             else:
                 # For Hugging Face embeddings, determine text_dim from the model
                 if embedding_model_name is None:
-                    embedding_model_name = 'intfloat/e5-base-v2'
+                    embedding_model_name = 'BAAI/bge-base-en'
                 # Load the model to get the embedding dimension
                 tokenizer = AutoTokenizer.from_pretrained(embedding_model_name)
                 hf_model = AutoModel.from_pretrained(embedding_model_name)
