@@ -77,7 +77,6 @@ MODEL_IDS = {
     "zephyr-7b-beta": 63,
 }
 
-
 class MFModel(torch.nn.Module, PyTorchModelHubMixin):
     def __init__(
         self,
@@ -86,97 +85,68 @@ class MFModel(torch.nn.Module, PyTorchModelHubMixin):
         text_dim,
         num_classes,
         use_proj,
-        use_openai_embeddings=True,  # Parameter to choose embedding source
-        embedding_model_name=None,  # Name of the embedding model
-        hf_token=None,  # Add hf_token as a parameter
+        use_openai_embeddings=False,  # Default: Hugging Face embeddings
+        embedding_model_name="intfloat/e5-base-v2",  # Match notebook
+        hf_token=None,  # Hugging Face API token
     ):
         super().__init__()
-        self._name = "TextMF"
         self.use_proj = use_proj
-        self.P = torch.nn.Embedding(num_models, dim)
         self.use_openai_embeddings = use_openai_embeddings
-        self.hf_token = hf_token 
+        self.hf_token = hf_token
+        self.embedding_model_name = embedding_model_name
 
-        if self.use_openai_embeddings:
-            self.embedding_model_name = embedding_model_name or "text-embedding-3-small"
-        else:
-            self.embedding_model_name = embedding_model_name or "intfloat/e5-base-v2"
-
-        logger.info(f"self.embedding_model_name: {self.embedding_model_name}")
-        logger.info(f"dim: {dim}")
+        # Model embedding matrix
+        self.P = torch.nn.Embedding(num_models, dim)
 
         if self.use_proj:
-            self.text_proj = torch.nn.Sequential(
-                torch.nn.Linear(text_dim, dim, bias=False)
-            )
+            self.text_proj = torch.nn.Linear(text_dim, dim, bias=False)
         else:
-            assert (
-                text_dim == dim
-            ), f"text_dim {text_dim} must be equal to dim {dim} if not using projection"
+            assert text_dim == dim, f"text_dim {text_dim} must be equal to dim {dim} if not using projection"
 
-        self.classifier = torch.nn.Sequential(
-            torch.nn.Linear(dim, num_classes, bias=False)
-        )
+        self.classifier = torch.nn.Linear(dim, num_classes, bias=False)
 
         if not self.use_openai_embeddings:
-            # Initialize Hugging Face tokenizer and model
+            logger.info(f"Loading Hugging Face tokenizer and model: {self.embedding_model_name}")
+
+            # Load tokenizer & model exactly as in the notebook
             self.tokenizer = AutoTokenizer.from_pretrained(
                 self.embedding_model_name,
-                use_auth_token=self.hf_token
+                token=hf_token  # Use `token` instead of `use_auth_token`
             )
-            
             self.embedding_model = AutoModel.from_pretrained(
                 self.embedding_model_name,
-                use_auth_token=self.hf_token
+                token=hf_token  # Use `token` instead of `use_auth_token`
             )
-            self.embedding_model.eval() 
+            self.embedding_model.eval()  # Set to inference mode
             self.embedding_model.to(self.get_device())
-        else:
-            self.embedding_model = None  # Not used for OpenAI embeddings
-        logger.info(f"\n\ntokenizer: {self.tokenizer}\n\n")
+
     def get_device(self):
         return self.P.weight.device
 
     def get_prompt_embedding(self, prompt):
-        if self.use_openai_embeddings:
-            # Use OpenAI embeddings
-            response = OPENAI_CLIENT.embeddings.create(
-                input=[prompt],
-                model=self.embedding_model_name
-            )
-            prompt_embed = response.data[0].embedding
-            prompt_embed = torch.tensor(prompt_embed, device=self.get_device())
-        else:
-            # Use Hugging Face embeddings
-            inputs = self.tokenizer(
-                prompt,
-                padding=True,
-                truncation=True,
-                return_tensors='pt'
-            )
-            inputs = {k: v.to(self.get_device()) for k, v in inputs.items()}
-            
-            with torch.no_grad():
-                outputs = self.embedding_model(**inputs)
-                
-                # Use CLS token instead of mean pooling
-                prompt_embed = outputs.last_hidden_state[:, 0, :].squeeze()
-                
-                # Normalize embeddings to match OpenAI
-                prompt_embed = torch.nn.functional.normalize(prompt_embed, p=2, dim=-1)
+        """Generate sentence embedding using mean pooling (matches notebook)."""
+        logger.info(f"Generating embedding for prompt: {prompt[:30]}...")
+        
+        inputs = self.tokenizer(
+            prompt,
+            padding=True,
+            truncation=True,
+            return_tensors="pt"
+        ).to(self.get_device())
 
-                # Ensure shape consistency
-                if prompt_embed.dim() == 1:
-                    prompt_embed = prompt_embed.view(-1)
+        with torch.no_grad():
+            outputs = self.embedding_model(**inputs)
+            last_hidden_state = outputs.last_hidden_state
 
+        # Mean pooling over token embeddings
+        prompt_embed = last_hidden_state.mean(dim=1).squeeze()
+        
         return prompt_embed
 
     def forward(self, model_id, prompt):
         model_id = torch.tensor(model_id, dtype=torch.long).to(self.get_device())
-
         model_embed = self.P(model_id)
         model_embed = torch.nn.functional.normalize(model_embed, p=2, dim=1)
-
         prompt_embed = self.get_prompt_embedding(prompt)
 
         if self.use_proj:
@@ -187,8 +157,12 @@ class MFModel(torch.nn.Module, PyTorchModelHubMixin):
     @torch.no_grad()
     def pred_win_rate(self, model_a, model_b, prompt):
         logits = self.forward([model_a, model_b], prompt)
-        logger.info(f"\n\nlogits: {logits}\n\n")
-        winrate = torch.sigmoid(logits[0] - logits[1]).item()
+        raw_diff = logits[0] - logits[1]
+        winrate = torch.sigmoid(raw_diff).item()
+        logger.info(
+            f"For prompt: '{prompt[:30]}...', logits: {[float(x) for x in logits]}, "
+            f"raw difference: {raw_diff:.4f}, winrate (sigmoid): {winrate:.4f}"
+        )
         return winrate
 
     def load(self, path):
