@@ -86,7 +86,7 @@ class MFModel(torch.nn.Module, PyTorchModelHubMixin):
         num_classes,
         use_proj,
         use_openai_embeddings=False,  # Default: Hugging Face embeddings
-        embedding_model_name="intfloat/e5-base-v2",  # Match notebook
+        embedding_model_name="BAAI/bge-base-en",  # Match notebook
         hf_token=None,  # Hugging Face API token
     ):
         super().__init__()
@@ -111,11 +111,11 @@ class MFModel(torch.nn.Module, PyTorchModelHubMixin):
             # Load tokenizer & model exactly as in the notebook
             self.tokenizer = AutoTokenizer.from_pretrained(
                 self.embedding_model_name,
-                token=hf_token  # Use `token` instead of `use_auth_token`
+                token=hf_token  
             )
             self.embedding_model = AutoModel.from_pretrained(
                 self.embedding_model_name,
-                token=hf_token  # Use `token` instead of `use_auth_token`
+                token=hf_token  
             )
             self.embedding_model.eval()  # Set to inference mode
             self.embedding_model.to(self.get_device())

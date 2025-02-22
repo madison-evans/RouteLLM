@@ -218,58 +218,47 @@ class MatrixFactorizationRouter(Router):
     def __init__(
         self,
         checkpoint_path,
-        # Model pair for scoring at inference time
         strong_model="gpt-4-1106-preview",
         weak_model="mixtral-8x7b-instruct-v0.1",
         hidden_size=128,
-        num_models=None,  # Updated to allow specifying num_models
-        text_dim=None,    # Updated to accept text_dim as a parameter
+        num_models=None,
+        text_dim=None,
         num_classes=1,
         use_proj=True,
-        use_openai_embeddings=True,         # New parameter
-        embedding_model_name=None,          # New parameter
-        hf_token=None,  # Add hf_token as a parameter
+        use_openai_embeddings=True,
+        embedding_model_name=None,
+        hf_token=None,
     ):
+        """
+        A simplified constructor that flattens the logic for:
+          1) Setting num_models from MODEL_IDS,
+          2) Determining embedding_model_name defaults,
+          3) Setting text_dim for OpenAI vs. HF embeddings,
+          4) Initializing the MFModel,
+          5) Setting strong/weak model IDs.
+        """
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        
-        # Set num_models to the length of MODEL_IDS if not specified
-        if num_models is None:
-            num_models = len(MODEL_IDS)
 
-        # Set text_dim based on the embedding model if not specified
+        # Default num_models to the length of MODEL_IDS if not provided
+        num_models = num_models or len(MODEL_IDS)
+
+        # Decide which embedding model_name to use if none provided
+        if not embedding_model_name:
+            if use_openai_embeddings:
+                # e.g. "text-embedding-ada-002" or your default
+                embedding_model_name = "text-embedding-3-small"
+            else:
+                embedding_model_name = "BAAI/bge-base-en"
+
+        # Decide text_dim if not provided
         if text_dim is None:
             if use_openai_embeddings:
-                # Default OpenAI embedding model is 'text-embedding-ada-002'
-                if embedding_model_name is None:
-                    embedding_model_name = "text-embedding-3-small"
-                # OpenAI embeddings have a fixed dimension
-                text_dim = 1536  # Adjust if using a different OpenAI model
+                # e.g., 1536 for text-embedding-ada-002
+                text_dim = 1536
             else:
-                # For Hugging Face embeddings, determine text_dim from the model
-                if embedding_model_name is None:
-                    embedding_model_name = 'BAAI/bge-base-en'
-                # Load the model to get the embedding dimension
-                tokenizer = AutoTokenizer.from_pretrained(embedding_model_name)
-                hf_model = AutoModel.from_pretrained(embedding_model_name)
-                # Get the embedding dimension from the model's config
-                text_dim = hf_model.config.hidden_size
-                # Clean up the model from memory
-                del tokenizer
-                del hf_model
+                text_dim = self._infer_hf_text_dim(embedding_model_name)
 
-        logger.info(f"Initializing MFModel with parameters:")
-        logger.info(f"  checkpoint_path: {checkpoint_path}")
-        logger.info(f"  dim: {hidden_size}")
-        logger.info(f"  num_models: {num_models}")
-        logger.info(f"  text_dim: {text_dim}")
-        logger.info(f"  num_classes: {num_classes}")
-        logger.info(f"  use_proj: {use_proj}")
-        logger.info(f"  use_openai_embeddings: {use_openai_embeddings}")
-        logger.info(f"  embedding_model_name: {embedding_model_name}")
-        logger.info(f"  hf_token: {hf_token}")
-
-
-        # Initialize the MFModel with the token passed in
+        # Initialize the MFModel
         self.model = MFModel.from_pretrained(
             checkpoint_path,
             dim=hidden_size,
@@ -279,18 +268,42 @@ class MatrixFactorizationRouter(Router):
             use_proj=use_proj,
             use_openai_embeddings=use_openai_embeddings,
             embedding_model_name=embedding_model_name,
-            hf_token=hf_token  # Pass the token here
-        )
-        self.model = self.model.eval().to(device)
+            hf_token=hf_token,
+        ).eval().to(device)
+
+        # Store strong/weak model IDs
         self.strong_model_id = MODEL_IDS[strong_model]
         self.weak_model_id = MODEL_IDS[weak_model]
 
+    @staticmethod
+    def _infer_hf_text_dim(embedding_model_name: str) -> int:
+        """
+        Helper to load a huggingface model and extract its hidden size.
+        Immediately frees model from memory.
+        """
+        tokenizer = AutoTokenizer.from_pretrained(embedding_model_name)
+        hf_model = AutoModel.from_pretrained(embedding_model_name)
+        dim = hf_model.config.hidden_size
+
+        del tokenizer
+        del hf_model
+
+        return dim
+
     def calculate_strong_win_rate(self, prompt):
+        """
+        Scores the prompt using the MF model to see how
+        often the 'strong' model is predicted to win
+        over the 'weak' model.
+        """
         winrate = self.model.pred_win_rate(
-            self.strong_model_id, self.weak_model_id, prompt
+            self.strong_model_id, 
+            self.weak_model_id, 
+            prompt
         )
         logger.info(f"\n\nwinrate: {winrate}\n\n")
         return winrate
+
 
 # Parallelism makes the randomness non deterministic
 @no_parallel
